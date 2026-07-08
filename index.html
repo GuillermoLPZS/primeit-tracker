@@ -877,6 +877,65 @@ input[type=date].task-date:focus{border-color:var(--green);}
 
   </div>
 
+  <!-- PIPELINE EN VIVO -->
+  <div id="pane-pipeline" style="display:none">
+
+    <!-- Filtros -->
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:1rem;">
+      <input type="text" id="pp-search" placeholder="Buscar cuenta o acción…" oninput="renderPipeline()" style="background:var(--surface);border:0.5px solid var(--border2);border-radius:var(--radius);padding:6px 12px;font-size:12px;color:var(--text);outline:none;min-width:200px;">
+      <select id="pp-bm" onchange="renderPipeline()" style="background:var(--surface);border:0.5px solid var(--border2);border-radius:var(--radius);padding:6px 12px;font-size:12px;color:var(--text);outline:none;">
+        <option value="">Todos los BMs</option>
+        <option>Carla Barea Cabrera</option>
+        <option>Marco Fernández Mayugo</option>
+        <option>David Ruiz Luján</option>
+        <option>Raquel Sánchez Canto</option>
+        <option>Joan Vázquez Peiró</option>
+        <option>Guillermo López de Subijana</option>
+      </select>
+      <button onclick="renderPipeline()" style="padding:6px 14px;font-size:12px;font-weight:600;background:var(--surface);border:0.5px solid var(--border2);border-radius:var(--radius);cursor:pointer;display:flex;align-items:center;gap:5px;color:var(--text)"><i class="ti ti-refresh"></i>Actualizar</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text3);cursor:pointer;margin-left:4px;">
+        <input type="checkbox" id="pp-autorefresh" onchange="ppToggleAutoRefresh()"> Auto-actualizar (60s)
+      </label>
+      <span id="pp-status" style="font-size:12px;color:var(--text3);margin-left:auto;"></span>
+    </div>
+
+    <!-- KPI strip -->
+    <div id="pp-kpis" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:1.25rem;"></div>
+
+    <!-- Kanban board -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start;">
+      <div class="pp-col">
+        <div class="pp-col-head" style="border-color:#ef4444"><span style="color:#ef4444">●</span> Vencidas <span class="pp-col-count" id="pp-count-vencidas"></span></div>
+        <div id="pp-list-vencidas" class="pp-col-body"></div>
+      </div>
+      <div class="pp-col">
+        <div class="pp-col-head" style="border-color:#f59e0b"><span style="color:#f59e0b">●</span> Esta semana <span class="pp-col-count" id="pp-count-semana"></span></div>
+        <div id="pp-list-semana" class="pp-col-body"></div>
+      </div>
+      <div class="pp-col">
+        <div class="pp-col-head" style="border-color:var(--green)"><span style="color:var(--green)">●</span> Próximas <span class="pp-col-count" id="pp-count-proximas"></span></div>
+        <div id="pp-list-proximas" class="pp-col-body"></div>
+      </div>
+      <div class="pp-col">
+        <div class="pp-col-head" style="border-color:#898781"><span style="color:#898781">●</span> Sin fecha <span class="pp-col-count" id="pp-count-sinfecha"></span></div>
+        <div id="pp-list-sinfecha" class="pp-col-body"></div>
+      </div>
+    </div>
+
+    <style>
+      .pp-col { background:var(--surface2); border-radius:var(--radius-lg); padding:.6rem; min-height:200px; }
+      .pp-col-head { font-size:12px; font-weight:700; color:var(--text); padding:.4rem .5rem .6rem; border-bottom:2px solid; display:flex; align-items:center; gap:6px; margin-bottom:.5rem; }
+      .pp-col-count { margin-left:auto; font-size:11px; font-weight:600; color:var(--text3); background:var(--surface); padding:1px 8px; border-radius:999px; }
+      .pp-card { background:var(--surface); border:0.5px solid var(--border); border-radius:var(--radius); padding:.6rem .7rem; margin-bottom:.5rem; }
+      .pp-card-cuenta { font-size:12px; font-weight:700; color:var(--green); margin-bottom:2px; }
+      .pp-card-accion { font-size:12px; color:var(--text); line-height:1.4; margin-bottom:6px; }
+      .pp-card-meta { display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text3); }
+      .pp-card-done-btn { background:none; border:0.5px solid var(--border2); border-radius:6px; padding:2px 8px; font-size:11px; color:var(--text2); cursor:pointer; }
+      .pp-card-done-btn:hover { background:var(--green); color:#fff; border-color:var(--green); }
+    </style>
+
+  </div>
+
   <!-- REUNIONES -->
   <div id="pane-reuniones" style="display:none">
     <button class="form-toggle" onclick="toggleForm(this,'form-reunion')"><i class="ti ti-plus"></i>Registrar reunión<i class="ti ti-chevron-down chevron" style="margin-left:auto;"></i></button>
@@ -1979,6 +2038,129 @@ async function ciSubmitReunion() {
   }
 }
 
+// ── PIPELINE EN VIVO ─────────────────────────────────────────
+let ppAutoRefreshInterval = null;
+
+function ppToggleAutoRefresh() {
+  const checked = document.getElementById('pp-autorefresh').checked;
+  if (ppAutoRefreshInterval) { clearInterval(ppAutoRefreshInterval); ppAutoRefreshInterval = null; }
+  if (checked) {
+    ppAutoRefreshInterval = setInterval(renderPipeline, 60000);
+  }
+}
+
+function ppDaysUntil(fechaStr) {
+  if (!fechaStr) return null;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const target = new Date(fechaStr + 'T00:00:00');
+  return Math.round((target - today) / 86400000);
+}
+
+function ppCard(p) {
+  const days = ppDaysUntil(p.fecha_limite);
+  const fechaStr = p.fecha_limite
+    ? new Date(p.fecha_limite + 'T00:00:00').toLocaleDateString('es-ES',{day:'numeric',month:'short',year:'numeric'})
+    : 'Sin fecha';
+  let badge = '';
+  if (days !== null) {
+    if (days < 0)      badge = `<span style="color:#ef4444;font-weight:600">${Math.abs(days)}d vencida</span>`;
+    else if (days===0) badge = `<span style="color:#f59e0b;font-weight:600">Hoy</span>`;
+    else                badge = `<span style="color:var(--text3)">en ${days}d</span>`;
+  }
+  return `
+    <div class="pp-card" id="pp-card-${p.id}">
+      <div class="pp-card-cuenta">${p.cuenta || '—'}</div>
+      <div class="pp-card-accion">${p.accion || '—'}</div>
+      <div class="pp-card-meta">
+        <span>${(p.responsable || p.bm_responsable || '').split(' ').slice(0,2).join(' ')} · ${fechaStr} ${badge}</span>
+        <button class="pp-card-done-btn" onclick="ppMarkDone('${p.id}')" title="Marcar como hecho"><i class="ti ti-check"></i></button>
+      </div>
+    </div>`;
+}
+
+async function ppMarkDone(id) {
+  const card = document.getElementById('pp-card-' + id);
+  if (card) card.style.opacity = '0.4';
+  try {
+    const r = await fetch(`${CI_URL}/rest/v1/proximos_pasos?id=eq.${id}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': CI_KEY, 'Authorization': 'Bearer ' + CI_KEY,
+        'Content-Type': 'application/json', 'Prefer': 'return=minimal'
+      },
+      mode: 'cors',
+      body: JSON.stringify({ estado: 'hecho' })
+    });
+    if (!r.ok) throw new Error('No se pudo actualizar');
+    setTimeout(renderPipeline, 300);
+  } catch(e) {
+    if (card) card.style.opacity = '1';
+    alert('Error al marcar como hecho: ' + e.message);
+  }
+}
+
+async function renderPipeline() {
+  const status = document.getElementById('pp-status');
+  status.textContent = 'Cargando...';
+
+  const bm     = document.getElementById('pp-bm')?.value || '';
+  const search = (document.getElementById('pp-search')?.value || '').toLowerCase().trim();
+
+  let qs = 'estado=eq.pendiente&order=fecha_limite.asc.nullslast&limit=500';
+  if (bm) qs += `&bm_responsable=eq.${encodeURIComponent(bm)}`;
+
+  const pasos = await ciGet('proximos_pasos', qs);
+  if (!pasos) { status.textContent = 'Error al conectar con Supabase.'; return; }
+
+  let filtered = pasos;
+  if (search) {
+    filtered = filtered.filter(p =>
+      (p.cuenta||'').toLowerCase().includes(search) ||
+      (p.accion||'').toLowerCase().includes(search)
+    );
+  }
+
+  const vencidas = [], semana = [], proximas = [], sinfecha = [];
+  filtered.forEach(p => {
+    const days = ppDaysUntil(p.fecha_limite);
+    if (days === null) sinfecha.push(p);
+    else if (days < 0) vencidas.push(p);
+    else if (days <= 7) semana.push(p);
+    else proximas.push(p);
+  });
+
+  document.getElementById('pp-count-vencidas').textContent = vencidas.length;
+  document.getElementById('pp-count-semana').textContent = semana.length;
+  document.getElementById('pp-count-proximas').textContent = proximas.length;
+  document.getElementById('pp-count-sinfecha').textContent = sinfecha.length;
+
+  document.getElementById('pp-list-vencidas').innerHTML = vencidas.map(ppCard).join('') || '<div style="font-size:12px;color:var(--text3);padding:.5rem">Nada vencido 🎉</div>';
+  document.getElementById('pp-list-semana').innerHTML = semana.map(ppCard).join('') || '<div style="font-size:12px;color:var(--text3);padding:.5rem">Sin tareas esta semana</div>';
+  document.getElementById('pp-list-proximas').innerHTML = proximas.map(ppCard).join('') || '<div style="font-size:12px;color:var(--text3);padding:.5rem">Sin tareas próximas</div>';
+  document.getElementById('pp-list-sinfecha').innerHTML = sinfecha.map(ppCard).join('') || '<div style="font-size:12px;color:var(--text3);padding:.5rem">Todo con fecha asignada</div>';
+
+  // KPIs
+  const totalPendientes = filtered.length;
+  const cuentasAfectadas = new Set(filtered.map(p => p.cuenta)).size;
+  document.getElementById('pp-kpis').innerHTML = [
+    { label:'Total pendientes', val: totalPendientes, icon:'ti-list-check', color:'var(--text)' },
+    { label:'Vencidas', val: vencidas.length, icon:'ti-alert-triangle', color: vencidas.length>0?'#ef4444':'var(--text3)' },
+    { label:'Esta semana', val: semana.length, icon:'ti-calendar-event', color:'#f59e0b' },
+    { label:'Próximas', val: proximas.length, icon:'ti-calendar', color:'var(--green)' },
+    { label:'Cuentas activas', val: cuentasAfectadas, icon:'ti-building-store', color:'var(--text)' },
+  ].map(k=>`
+    <div style="background:var(--surface);border:0.5px solid var(--border);border-radius:var(--radius-lg);padding:.85rem 1rem;display:flex;align-items:center;gap:10px;">
+      <i class="ti ${k.icon}" style="font-size:19px;color:${k.color}"></i>
+      <div>
+        <div style="font-size:19px;font-weight:700;color:var(--text);line-height:1">${k.val}</div>
+        <div style="font-size:10.5px;color:var(--text3);margin-top:2px">${k.label}</div>
+      </div>
+    </div>`).join('');
+
+  const now = new Date().toLocaleTimeString('es-ES', {hour:'2-digit', minute:'2-digit'});
+  status.textContent = `Actualizado a las ${now}`;
+}
+
 function renderIntel(){
   document.getElementById('itbody').innerHTML=ACCOUNTS.map((a,i)=>`
     <tr style="${i%2?'background:var(--surface2)':''}">
@@ -2134,7 +2316,7 @@ function addContacto(){
 
 // ── TABS ──────────────────────────────────────────────────────
 function showTab(name){
-  const allPanes = ['dashboard','contactos','intel','cuentas','reuniones','actividad','managers','anadir','smallbiz','registro','bmkpi','usuarios'];
+  const allPanes = ['dashboard','contactos','intel','cuentas','pipeline','reuniones','actividad','managers','anadir','smallbiz','registro','bmkpi','usuarios'];
   allPanes.forEach(t=>{
     const pane = document.getElementById('pane-'+t);
     if(pane) pane.style.display = t===name ? '' : 'none';
@@ -2143,6 +2325,7 @@ function showTab(name){
   if(name==='contactos')renderContacts();
   if(name==='intel')renderIntel();
   if(name==='cuentas')renderCuentasIntel();
+  if(name==='pipeline')renderPipeline();
   if(name==='reuniones')renderMeetings();
   if(name==='actividad')renderActividad();
   if(name==='managers'){renderManagers();}
@@ -4081,6 +4264,7 @@ const AREAS = {
     { id:'contactos',  label:'Contactos',        icon:'ti-users' },
     { id:'intel',      label:'Intel',            icon:'ti-radar' },
     { id:'cuentas',    label:'Cuentas',          icon:'ti-building-store' },
+    { id:'pipeline',   label:'Pipeline',         icon:'ti-checklist' },
     { id:'reuniones',  label:'Reuniones',        icon:'ti-notes' },
     { id:'actividad',  label:'Actividad',        icon:'ti-activity' },
     { id:'registro',   label:'Registro Tareas',  icon:'ti-clipboard-list' },
